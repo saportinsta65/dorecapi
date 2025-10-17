@@ -1,0 +1,75 @@
+# نسخه کامل .htaccess برای امنیت کامل ربات
+
+# محافظت از فایل‌های JSON
+<Files "*.json">
+    Require all denied
+</Files>
+
+# محافظت از فایل‌های log
+<Files "*.log">
+    Require all denied
+</Files>
+
+# محافظت از فایل‌های backup
+<Files "*.bak">
+    Require all denied
+</Files>
+
+# محافظت از config و db
+<Files "config.php">
+    Require ip 127.0.0.1
+</Files>
+
+<Files "db.php">
+    Require ip 127.0.0.1
+</Files>
+
+# محافظت از .htaccess خودش
+<Files ".htaccess">
+    Require all denied
+</Files>
+
+# غیرفعال کردن نمایش directory
+Options -Indexes
+
+# محافظت از فایل‌های خاص
+<FilesMatch "\.(log|json|bak|sql|txt)$">
+    Require all denied
+</FilesMatch>
+
+# فقط درخواست‌های POST و GET مجاز
+<LimitExcept GET POST>
+    Require all denied
+</LimitExcept>
+
+# جلوگیری از hotlinking
+RewriteEngine On
+RewriteCond %{HTTP_REFERER} !^$
+RewriteCond %{HTTP_REFERER} !^https?://(www\.)?yourdomain\.com [NC]
+RewriteRule \.(jpg|jpeg|png|gif)$ - [F]
+
+# محافظت در برابر injection
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{QUERY_STRING} (\<|%3C).*script.*(\>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} GLOBALS(=|\[|\%[0-9A-Z]{0,2}) [OR]
+RewriteCond %{QUERY_STRING} _REQUEST(=|\[|\%[0-9A-Z]{0,2}) [OR]
+RewriteCond %{QUERY_STRING} (\<|%3C).*iframe.*(\>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} (\<|%3C).*object.*(\>|%3E) [NC,OR]
+RewriteCond %{QUERY_STRING} (\<|%3C).*embed.*(\>|%3E) [NC]
+RewriteRule ^(.*)$ - [F,L]
+</IfModule>
+
+# Cache control
+<IfModule mod_expires.c>
+ExpiresActive Off
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+Header always set X-Content-Type-Options nosniff
+Header always set X-Frame-Options DENY
+Header always set X-XSS-Protection "1; mode=block"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Content-Security-Policy "default-src 'self'"
+</IfModule>
