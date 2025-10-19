@@ -370,46 +370,94 @@ function getSessionTitles() {
 }
 
 /**
- * ✅ بررسی وضعیت تمرین برای یک جلسه خاص - تصحیح شده
+ * ✅ بررسی وضعیت تمرین برای یک جلسه خاص - بهبود یافته با لاگ‌گیری پیشرفته
  */
 function getUserExerciseStatusForSession($user_id, $session_id) {
     try {
         $user = getUserById($user_id);
         if (!$user) {
+            userDebugLog("User not found when checking exercise status", ['user_id' => $user_id]);
             return 'not_found';
         }
         
         $exercises = safeDecodeUserData($user['exercises'] ?? null, []);
         
-        // بررسی هر دو حالت string و integer key
+        // نرمال‌سازی session_id به integer
+        $normalized_session_id = intval($session_id);
+        
+        userDebugLog("Checking exercise status", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'normalized_id' => $normalized_session_id,
+            'exercises_keys' => array_keys($exercises)
+        ]);
+        
+        // جستجوی تمرین با بررسی هر دو نوع کلید
         $exercise = null;
-        if (isset($exercises[$session_id])) {
-            $exercise = $exercises[$session_id];
-        } elseif (isset($exercises[strval($session_id)])) {
-            $exercise = $exercises[strval($session_id)];
-        } elseif (isset($exercises[intval($session_id)])) {
-            $exercise = $exercises[intval($session_id)];
+        
+        // اول بررسی کلید integer
+        if (isset($exercises[$normalized_session_id])) {
+            $exercise = $exercises[$normalized_session_id];
+            userDebugLog("Found exercise with integer key", ['session_id' => $normalized_session_id]);
+        }
+        // سپس بررسی کلید string  
+        elseif (isset($exercises[strval($normalized_session_id)])) {
+            $exercise = $exercises[strval($normalized_session_id)];
+            userDebugLog("Found exercise with string key", ['session_id' => strval($normalized_session_id)]);
+        }
+        // بررسی تمام کلیدها به صورت دستی برای مطابقت
+        else {
+            foreach ($exercises as $key => $ex) {
+                if (intval($key) === $normalized_session_id) {
+                    $exercise = $ex;
+                    userDebugLog("Found exercise with manual key match", ['key' => $key, 'session_id' => $normalized_session_id]);
+                    break;
+                }
+            }
         }
         
         if (!$exercise) {
+            userDebugLog("Exercise not found for session", [
+                'user_id' => $user_id,
+                'session_id' => $normalized_session_id,
+                'available_sessions' => array_keys($exercises)
+            ]);
             return 'not_submitted';
         }
         
-        return $exercise['status'] ?? 'unknown';
+        $status = $exercise['status'] ?? 'unknown';
+        userDebugLog("Exercise status retrieved", [
+            'user_id' => $user_id,
+            'session_id' => $normalized_session_id,
+            'status' => $status
+        ]);
+        
+        return $status;
         
     } catch (Exception $e) {
-        userDebugLog("Error checking exercise status for user $user_id, session $session_id", ['error' => $e->getMessage()]);
+        userDebugLog("Error checking exercise status", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
         return 'error';
     }
 }
 
 /**
- * ✅ تشخیص اینکه کاربر منتظر پاسخ تمرین است - تصحیح شده
+ * ✅ تشخیص اینکه کاربر منتظر پاسخ تمرین است - بهبود یافته با لاگ‌گیری پیشرفته
  */
 function findPendingExerciseForUser($user_id, $text) {
     try {
+        userDebugLog("Finding pending exercise for user", [
+            'user_id' => $user_id,
+            'text_length' => strlen($text)
+        ]);
+        
         $user = getUserById($user_id);
         if (!$user) {
+            userDebugLog("User not found in findPendingExerciseForUser", ['user_id' => $user_id]);
             return null;
         }
         
@@ -417,34 +465,66 @@ function findPendingExerciseForUser($user_id, $text) {
         $seen_sessions = safeDecodeUserData($user['seen_sessions'] ?? null, []);
         $sessions = loadSessions();
         
-        // جستجو برای جلسه‌ای که کاربر دیده ولی تمرینش pending یا rejected هست
+        userDebugLog("User exercise data", [
+            'user_id' => $user_id,
+            'exercises_count' => count($exercises),
+            'exercises_keys' => array_keys($exercises),
+            'seen_sessions_count' => count($seen_sessions),
+            'total_sessions' => count($sessions)
+        ]);
+        
+        // جستجو برای جلسه‌ای که کاربر دیده ولی تمرینش pending یا rejected یا not_submitted هست
         foreach ($sessions as $sess) {
-            if (is_array($seen_sessions) && in_array($sess['title'], $seen_sessions)) {
-                $session_id = intval($sess['id']);
-                $exercise_status = getUserExerciseStatusForSession($user_id, $session_id);
+            // بررسی اینکه آیا کاربر این جلسه را دیده
+            if (!is_array($seen_sessions) || !in_array($sess['title'], $seen_sessions)) {
+                continue;
+            }
+            
+            // نرمال‌سازی session_id
+            $session_id = intval($sess['id']);
+            
+            // دریافت وضعیت تمرین با تابع بهبود یافته
+            $exercise_status = getUserExerciseStatusForSession($user_id, $session_id);
+            
+            userDebugLog("Checking session for pending exercise", [
+                'session_id' => $session_id,
+                'session_title' => $sess['title'],
+                'exercise_status' => $exercise_status,
+                'has_exercise' => isset($sess['exercise']) && !empty(trim($sess['exercise']))
+            ]);
+            
+            // اگر تمرین وجود نداره، pending هست یا rejected شده
+            if ($exercise_status === 'not_submitted' || 
+                $exercise_status === 'pending' || 
+                $exercise_status === 'rejected') {
                 
-                // اگر تمرین وجود نداره، pending هست یا rejected شده
-                if ($exercise_status === 'not_submitted' || 
-                    $exercise_status === 'pending' || 
-                    $exercise_status === 'rejected') {
-                    
-                    // اطمینان از اینکه این جلسه exercise داره
-                    if (isset($sess['exercise']) && !empty(trim($sess['exercise']))) {
-                        userDebugLog("Found pending exercise for user $user_id", [
-                            'session' => $sess['title'], 
-                            'session_id' => $session_id, 
-                            'status' => $exercise_status
-                        ]);
-                        return $sess;
-                    }
+                // اطمینان از اینکه این جلسه exercise داره
+                if (isset($sess['exercise']) && !empty(trim($sess['exercise']))) {
+                    userDebugLog("Found pending exercise for user", [
+                        'user_id' => $user_id,
+                        'session' => $sess['title'], 
+                        'session_id' => $session_id, 
+                        'status' => $exercise_status
+                    ]);
+                    return $sess;
+                } else {
+                    userDebugLog("Session has no exercise content", [
+                        'session_id' => $session_id,
+                        'session_title' => $sess['title']
+                    ]);
                 }
             }
         }
         
+        userDebugLog("No pending exercise found for user", ['user_id' => $user_id]);
         return null;
         
     } catch (Exception $e) {
-        userDebugLog("Error finding pending exercise for user $user_id", ['error' => $e->getMessage()]);
+        userDebugLog("Error finding pending exercise", [
+            'user_id' => $user_id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
         return null;
     }
 }

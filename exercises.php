@@ -54,7 +54,7 @@ if (!function_exists('exerciseDebugLog')) {
 }
 
 /**
- * ✅ ارسال تمرین جلسه - نسخه حرفه‌ای
+ * ✅ ارسال تمرین جلسه - نسخه حرفه‌ای با کلید استاندارد integer
  */
 function sendExercisePro($user_id, $session_title) {
     try {
@@ -101,13 +101,22 @@ function sendExercisePro($user_id, $session_title) {
             return false;
         }
         
-        // ثبت وضعیت اولیه تمرین
+        // ثبت وضعیت اولیه تمرین با کلید integer استاندارد
         $exercises = safeJsonDecode($user['exercises'] ?? null, []);
+        
+        // ✅ نرمال‌سازی session_id به integer
         $session_id = intval($session['id']);
         
+        // ✅ نرمال‌سازی exercises: تبدیل تمام کلیدهای string به integer
+        $normalized_exercises = [];
+        foreach ($exercises as $key => $ex) {
+            $normalized_key = intval($key);
+            $normalized_exercises[$normalized_key] = $ex;
+        }
+        
         // جلوگیری از ذخیره دوبار
-        if (!isset($exercises[$session_id]) || $exercises[$session_id]['status'] !== 'pending') {
-            $exercises[$session_id] = [
+        if (!isset($normalized_exercises[$session_id]) || $normalized_exercises[$session_id]['status'] !== 'pending') {
+            $normalized_exercises[$session_id] = [
                 'answer' => '',
                 'status' => 'waiting_answer',
                 'sent_at' => date('Y-m-d H:i:s'),
@@ -115,10 +124,14 @@ function sendExercisePro($user_id, $session_title) {
                 'session_id' => $session_id
             ];
             
-            $user['exercises'] = json_encode($exercises, JSON_UNESCAPED_UNICODE);
+            $user['exercises'] = json_encode($normalized_exercises, JSON_UNESCAPED_UNICODE);
             
             if (saveUser($user)) {
-                exerciseDebugLog("Exercise ready status saved", ['user_id' => $user_id, 'session_id' => $session_id]);
+                exerciseDebugLog("Exercise ready status saved", [
+                    'user_id' => $user_id,
+                    'session_id' => $session_id,
+                    'normalized_keys' => array_keys($normalized_exercises)
+                ]);
             }
         }
         
@@ -126,12 +139,17 @@ function sendExercisePro($user_id, $session_title) {
         
     } catch (Exception $e) {
         error_log("❌ Error in sendExercisePro: " . $e->getMessage());
+        exerciseDebugLog("Exception in sendExercisePro", [
+            'user_id' => $user_id,
+            'session' => $session_title,
+            'error' => $e->getMessage()
+        ]);
         return false;
     }
 }
 
 /**
- * ✅ پردازش پاسخ تمرین - نسخه حرفه‌ای (بدون ذخیره دوبار)
+ * ✅ پردازش پاسخ تمرین - نسخه حرفه‌ای (بدون ذخیره دوبار، با کلید استاندارد integer)
  */
 function handleExerciseAnswerPro($user_id, $session_title, $answer) {
     try {
@@ -162,9 +180,16 @@ function handleExerciseAnswerPro($user_id, $session_title, $answer) {
             return false;
         }
         
+        // ✅ نرمال‌سازی session_id به integer برای استانداردسازی
         $session_id = intval($session['id']);
         $user = getUserById($user_id);
         $exercises = safeJsonDecode($user['exercises'] ?? null, []);
+        
+        exerciseDebugLog("Exercise data before update", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'exercises_keys' => array_keys($exercises)
+        ]);
         
         // ✅ جلوگیری از ذخیره دوبار
         if (isset($exercises[$session_id]) && 
@@ -177,8 +202,15 @@ function handleExerciseAnswerPro($user_id, $session_title, $answer) {
             return false;
         }
         
-        // ذخیره پاسخ جدید
-        $exercises[$session_id] = [
+        // ✅ نرمال‌سازی exercises: تبدیل تمام کلیدهای string به integer
+        $normalized_exercises = [];
+        foreach ($exercises as $key => $ex) {
+            $normalized_key = intval($key);
+            $normalized_exercises[$normalized_key] = $ex;
+        }
+        
+        // ذخیره پاسخ جدید با کلید integer استاندارد
+        $normalized_exercises[$session_id] = [
             'answer' => trim($answer),
             'status' => 'pending',
             'submitted_at' => date('Y-m-d H:i:s'),
@@ -186,14 +218,18 @@ function handleExerciseAnswerPro($user_id, $session_title, $answer) {
             'session_id' => $session_id
         ];
         
-        $user['exercises'] = json_encode($exercises, JSON_UNESCAPED_UNICODE);
+        $user['exercises'] = json_encode($normalized_exercises, JSON_UNESCAPED_UNICODE);
         
         if (!saveUser($user)) {
             error_log("❌ Failed to save exercise answer");
             return false;
         }
         
-        exerciseDebugLog("Exercise answer saved successfully", ['user_id' => $user_id, 'session_id' => $session_id]);
+        exerciseDebugLog("Exercise answer saved successfully", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'normalized_keys' => array_keys($normalized_exercises)
+        ]);
         
         // اطلاع به کاربر - پیام حرفه‌ای
         $user_name = $user['first_name'] ?? 'کاربر';
@@ -216,6 +252,11 @@ function handleExerciseAnswerPro($user_id, $session_title, $answer) {
         
     } catch (Exception $e) {
         error_log("❌ Error in handleExerciseAnswerPro: " . $e->getMessage());
+        exerciseDebugLog("Exception in handleExerciseAnswerPro", [
+            'user_id' => $user_id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
         return false;
     }
 }
@@ -473,7 +514,7 @@ function viewExerciseDetails($user_id, $session_id) {
 }
 
 /**
- * ✅ تایید تمرین
+ * ✅ تایید تمرین - با پشتیبانی از کلیدهای integer و string
  */
 function acceptExercise($user_id, $session_id) {
     try {
@@ -487,25 +528,53 @@ function acceptExercise($user_id, $session_id) {
         
         $exercises = safeJsonDecode($user['exercises'] ?? null, []);
         
-        // پیدا کردن تمرین
+        // ✅ نرمال‌سازی session_id
+        $normalized_session_id = intval($session_id);
+        
+        // پیدا کردن تمرین با پشتیبانی از هر دو نوع کلید
         $exercise_key = null;
-        if (isset($exercises[$session_id])) {
-            $exercise_key = $session_id;
-        } elseif (isset($exercises[strval($session_id)])) {
-            $exercise_key = strval($session_id);
+        $exercise = null;
+        
+        if (isset($exercises[$normalized_session_id])) {
+            $exercise_key = $normalized_session_id;
+            $exercise = $exercises[$normalized_session_id];
+        } elseif (isset($exercises[strval($normalized_session_id)])) {
+            $exercise_key = strval($normalized_session_id);
+            $exercise = $exercises[$exercise_key];
+        } else {
+            // جستجوی دستی در تمام کلیدها
+            foreach ($exercises as $key => $ex) {
+                if (intval($key) === $normalized_session_id) {
+                    $exercise_key = $key;
+                    $exercise = $ex;
+                    break;
+                }
+            }
         }
         
         if ($exercise_key === null) {
             if (defined('ADMIN_ID')) {
                 sendMessage(ADMIN_ID, "❌ تمرین یافت نشد: کاربر $user_id، جلسه $session_id");
+                exerciseDebugLog("Exercise not found for accept", [
+                    'user_id' => $user_id,
+                    'session_id' => $normalized_session_id,
+                    'available_keys' => array_keys($exercises)
+                ]);
             }
             return false;
         }
         
+        // ✅ نرمال‌سازی exercises: تبدیل تمام کلیدها به integer
+        $normalized_exercises = [];
+        foreach ($exercises as $key => $ex) {
+            $norm_key = intval($key);
+            $normalized_exercises[$norm_key] = $ex;
+        }
+        
         // تایید تمرین
-        $exercises[$exercise_key]['status'] = 'accepted';
-        $exercises[$exercise_key]['approved_at'] = date('Y-m-d H:i:s');
-        $user['exercises'] = json_encode($exercises, JSON_UNESCAPED_UNICODE);
+        $normalized_exercises[$normalized_session_id]['status'] = 'accepted';
+        $normalized_exercises[$normalized_session_id]['approved_at'] = date('Y-m-d H:i:s');
+        $user['exercises'] = json_encode($normalized_exercises, JSON_UNESCAPED_UNICODE);
         
         if (!saveUser($user)) {
             if (defined('ADMIN_ID')) {
@@ -514,7 +583,7 @@ function acceptExercise($user_id, $session_id) {
             return false;
         }
         
-        $session_title = $exercises[$exercise_key]['session_title'] ?? "جلسه شماره $session_id";
+        $session_title = $exercise['session_title'] ?? "جلسه شماره $normalized_session_id";
         
         // اطلاع به کاربر - پیام انگیزشی
         $user_name = $user['first_name'] ?? 'کاربر';
@@ -532,7 +601,7 @@ function acceptExercise($user_id, $session_id) {
         }
         
         // بررسی تکمیل دوره
-        if (function_exists('isLastSession') && isLastSession(intval($session_id))) {
+        if (function_exists('isLastSession') && isLastSession($normalized_session_id)) {
             if (function_exists('isUserEligibleForCampaign') && isUserEligibleForCampaign($user_id)) {
                 if (function_exists('startCampaign')) {
                     startCampaign($user_id);
@@ -543,17 +612,26 @@ function acceptExercise($user_id, $session_id) {
             }
         }
         
-        exerciseDebugLog("Exercise accepted successfully", ['user_id' => $user_id, 'session_id' => $session_id]);
+        exerciseDebugLog("Exercise accepted successfully", [
+            'user_id' => $user_id,
+            'session_id' => $normalized_session_id,
+            'normalized_keys' => array_keys($normalized_exercises)
+        ]);
         return true;
         
     } catch (Exception $e) {
         error_log("❌ Error in acceptExercise: " . $e->getMessage());
+        exerciseDebugLog("Exception in acceptExercise", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'error' => $e->getMessage()
+        ]);
         return false;
     }
 }
 
 /**
- * ✅ رد تمرین
+ * ✅ رد تمرین - با پشتیبانی از کلیدهای integer و string
  */
 function rejectExercise($user_id, $session_id) {
     try {
@@ -567,25 +645,53 @@ function rejectExercise($user_id, $session_id) {
         
         $exercises = safeJsonDecode($user['exercises'] ?? null, []);
         
-        // پیدا کردن تمرین
+        // ✅ نرمال‌سازی session_id
+        $normalized_session_id = intval($session_id);
+        
+        // پیدا کردن تمرین با پشتیبانی از هر دو نوع کلید
         $exercise_key = null;
-        if (isset($exercises[$session_id])) {
-            $exercise_key = $session_id;
-        } elseif (isset($exercises[strval($session_id)])) {
-            $exercise_key = strval($session_id);
+        $exercise = null;
+        
+        if (isset($exercises[$normalized_session_id])) {
+            $exercise_key = $normalized_session_id;
+            $exercise = $exercises[$normalized_session_id];
+        } elseif (isset($exercises[strval($normalized_session_id)])) {
+            $exercise_key = strval($normalized_session_id);
+            $exercise = $exercises[$exercise_key];
+        } else {
+            // جستجوی دستی در تمام کلیدها
+            foreach ($exercises as $key => $ex) {
+                if (intval($key) === $normalized_session_id) {
+                    $exercise_key = $key;
+                    $exercise = $ex;
+                    break;
+                }
+            }
         }
         
         if ($exercise_key === null) {
             if (defined('ADMIN_ID')) {
                 sendMessage(ADMIN_ID, "❌ تمرین یافت نشد: کاربر $user_id، جلسه $session_id");
+                exerciseDebugLog("Exercise not found for reject", [
+                    'user_id' => $user_id,
+                    'session_id' => $normalized_session_id,
+                    'available_keys' => array_keys($exercises)
+                ]);
             }
             return false;
         }
         
+        // ✅ نرمال‌سازی exercises: تبدیل تمام کلیدها به integer
+        $normalized_exercises = [];
+        foreach ($exercises as $key => $ex) {
+            $norm_key = intval($key);
+            $normalized_exercises[$norm_key] = $ex;
+        }
+        
         // رد تمرین
-        $exercises[$exercise_key]['status'] = 'rejected';
-        $exercises[$exercise_key]['rejected_at'] = date('Y-m-d H:i:s');
-        $user['exercises'] = json_encode($exercises, JSON_UNESCAPED_UNICODE);
+        $normalized_exercises[$normalized_session_id]['status'] = 'rejected';
+        $normalized_exercises[$normalized_session_id]['rejected_at'] = date('Y-m-d H:i:s');
+        $user['exercises'] = json_encode($normalized_exercises, JSON_UNESCAPED_UNICODE);
         
         if (!saveUser($user)) {
             if (defined('ADMIN_ID')) {
@@ -594,7 +700,7 @@ function rejectExercise($user_id, $session_id) {
             return false;
         }
         
-        $session_title = $exercises[$exercise_key]['session_title'] ?? "جلسه شماره $session_id";
+        $session_title = $exercise['session_title'] ?? "جلسه شماره $normalized_session_id";
         $user_name = $user['first_name'] ?? 'کاربر';
         
         // اطلاع به کاربر - پیام سازنده
@@ -615,11 +721,20 @@ function rejectExercise($user_id, $session_id) {
             sendMessage(ADMIN_ID, "❌ تمرین کاربر <b>$user_name</b> (#$user_id) برای جلسه <b>$session_title</b> رد شد.");
         }
         
-        exerciseDebugLog("Exercise rejected successfully", ['user_id' => $user_id, 'session_id' => $session_id]);
+        exerciseDebugLog("Exercise rejected successfully", [
+            'user_id' => $user_id,
+            'session_id' => $normalized_session_id,
+            'normalized_keys' => array_keys($normalized_exercises)
+        ]);
         return true;
         
     } catch (Exception $e) {
         error_log("❌ Error in rejectExercise: " . $e->getMessage());
+        exerciseDebugLog("Exception in rejectExercise", [
+            'user_id' => $user_id,
+            'session_id' => $session_id,
+            'error' => $e->getMessage()
+        ]);
         return false;
     }
 }
