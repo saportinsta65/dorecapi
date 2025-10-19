@@ -954,87 +954,17 @@ function handleAdmin($message, $chat_id, $text, $user_id) {
             return true;
         }
         
-        // پیام همگانی
-        if ($admin_state['step'] == 'broadcast') {
-            if ($text == "انصراف" || $text == "/cancel") {
-                saveAdminState([]);
-                sendMessage($chat_id, "ارسال پیام همگانی لغو شد.", $adminKeyboard);
-                return true;
-            }
-            
-            $users = loadUsers();
-            $sent = 0;
-            $failed = 0;
-            
-            foreach ($users as $u) {
-                $uid = $u['id'];
-                try {
-                    $message_sent = false;
-                    
-                    if ($text && !isset($message['document']) && !isset($message['audio']) && !isset($message['voice']) && !isset($message['video']) && !isset($message['photo'])) {
-                        if (sendMessage($uid, $text)) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (isset($message['document'])) {
-                        $caption = $message['caption'] ?? '';
-                        if (sendFile($uid, 'document', $message['document']['file_id'], $caption)) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (isset($message['audio'])) {
-                        $caption = $message['caption'] ?? '';
-                        if (sendFile($uid, 'audio', $message['audio']['file_id'], $caption)) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (isset($message['voice'])) {
-                        if (sendFile($uid, 'voice', $message['voice']['file_id'], '')) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (isset($message['video'])) {
-                        $caption = $message['caption'] ?? '';
-                        if (sendFile($uid, 'video', $message['video']['file_id'], $caption)) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (isset($message['photo'])) {
-                        $photo_arr = $message['photo'];
-                        $file_id = $photo_arr[count($photo_arr)-1]['file_id'];
-                        $caption = $message['caption'] ?? '';
-                        if (sendFile($uid, 'photo', $file_id, $caption)) {
-                            $sent++;
-                            $message_sent = true;
-                        }
-                    }
-                    
-                    if (!$message_sent) {
-                        $failed++;
-                    }
-                    
-                } catch(Exception $e) {
-                    $failed++;
-                    error_log("Failed to send broadcast to user $uid: " . $e->getMessage());
-                }
-                
-                usleep(300000); // بین هر پیام ۰.۳ ثانیه مکث برای جلوگیری از flood
-            }
-            
-            saveAdminState([]);
-            $total_users = count($users);
-            sendMessage($chat_id, "📢 <b>گزارش پیام همگانی:</b>\n\n✅ موفق: <b>$sent</b>\n❌ ناموفق: <b>$failed</b>\n👥 کل: <b>$total_users</b>", $adminKeyboard);
-            return true;
+       $broadcast_id = 'bcast_' . time();
+$sent_users = []; // لیست کاربران ارسال شده
+
+foreach ($users as $u) {
+    if (in_array($u['id'], $sent_users)) {
+        continue; // ✅ قبلاً فرستادیم، رد شو
+    }
+    
+    if (sendMessage($u['id'], $text)) {
+        $sent_users[] = $u['id']; // ✅ ذخیره که فرستادیم
+        
         }
     }
 
