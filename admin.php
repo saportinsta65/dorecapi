@@ -954,18 +954,143 @@ function handleAdmin($message, $chat_id, $text, $user_id) {
             return true;
         }
         
-       $broadcast_id = 'bcast_' . time();
-$sent_users = []; // لیست کاربران ارسال شده
-
-foreach ($users as $u) {
-    if (in_array($u['id'], $sent_users)) {
-        continue; // ✅ قبلاً فرستادیم، رد شو
+       
+        // ✅ پیام همگانی با جلوگیری از ارسال چندباره
+if ($admin_state['step'] == 'broadcast') {
+    if ($text == "انصراف" || $text == "/cancel") {
+        saveAdminState([]);
+        sendMessage($chat_id, "ارسال پیام همگانی لغو شد.", $adminKeyboard);
+        return true;
     }
     
-    if (sendMessage($u['id'], $text)) {
-        $sent_users[] = $u['id']; // ✅ ذخیره که فرستادیم
+    // تولید ID منحصر به فرد برای این broadcast
+    $broadcast_id = 'bcast_' . time() . '_' . $user_id;
+    
+    // ذخیره broadcast_id در admin_state
+    if (!isset($admin_state['broadcast_id'])) {
+        $admin_state['broadcast_id'] = $broadcast_id;
+        saveAdminState($admin_state);
+    } else {
+        $broadcast_id = $admin_state['broadcast_id'];
+    }
+    
+    $users = loadUsers();
+    $sent = 0;
+    $failed = 0;
+    
+    // فایل موقت برای ردگیری کاربران
+    $data_dir = __DIR__ . "/data";
+    if (!is_dir($data_dir)) {
+        mkdir($data_dir, 0755, true);
+    }
+    
+    $sent_file = $data_dir . "/{$broadcast_id}_sent.json";
+    $sent_users = [];
+    
+    if (file_exists($sent_file)) {
+        $sent_users = json_decode(file_get_contents($sent_file), true) ?: [];
+    }
+    
+    foreach ($users as $u) {
+        $uid = $u['id'];
         
+        // چک کردن که قبلاً ارسال نکردیم
+        if (in_array($uid, $sent_users)) {
+            error_log("[BROADCAST] Already sent to user $uid, skipping");
+            continue;
         }
+        
+        try {
+            $message_sent = false;
+            
+            // ارسال متن
+            if ($text && !isset($message['document']) && !isset($message['audio']) && 
+                !isset($message['voice']) && !isset($message['video']) && !isset($message['photo'])) {
+                if (sendMessage($uid, $text)) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            // ارسال فایل
+            if (isset($message['document'])) {
+                $caption = $message['caption'] ?? '';
+                if (sendFile($uid, 'document', $message['document']['file_id'], $caption)) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            if (isset($message['audio'])) {
+                $caption = $message['caption'] ?? '';
+                if (sendFile($uid, 'audio', $message['audio']['file_id'], $caption)) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            if (isset($message['voice'])) {
+                if (sendFile($uid, 'voice', $message['voice']['file_id'], '')) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            if (isset($message['video'])) {
+                $caption = $message['caption'] ?? '';
+                if (sendFile($uid, 'video', $message['video']['file_id'], $caption)) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            if (isset($message['photo'])) {
+                $photo_arr = $message['photo'];
+                $file_id = $photo_arr[count($photo_arr)-1]['file_id'];
+                $caption = $message['caption'] ?? '';
+                if (sendFile($uid, 'photo', $file_id, $caption)) {
+                    $sent++;
+                    $message_sent = true;
+                }
+            }
+            
+            if (!$message_sent) {
+                $failed++;
+            } else {
+                // ذخیره که به این کاربر فرستادیم
+                $sent_users[] = $uid;
+                file_put_contents($sent_file, json_encode($sent_users));
+                error_log("[BROADCAST] Sent to user $uid");
+            }
+            
+        } catch(Exception $e) {
+            $failed++;
+            error_log("[BROADCAST] Failed to send to user $uid: " . $e->getMessage());
+        }
+        
+        // تاخیر برای جلوگیری از rate limit
+        usleep(300000); // 0.3 ثانیه
+    }
+    
+    // پاک کردن فایل موقت
+    if (file_exists($sent_file)) {
+        unlink($sent_file);
+    }
+    
+    // پاک کردن state
+    saveAdminState([]);
+    
+    $total_users = count($users);
+    $report = "📢 <b>گزارش پیام همگانی:</b>\n\n";
+    $report .= "✅ موفق: <b>$sent</b>\n";
+    $report .= "❌ ناموفق: <b>$failed</b>\n";
+    $report .= "👥 کل: <b>$total_users</b>\n";
+    $report .= "⏰ زمان: " . date('H:i:s');
+    
+    sendMessage($chat_id, $report, $adminKeyboard);
+    return true;
+    
+}
     }
 
     // دستورات اصلی پنل مدیریت
